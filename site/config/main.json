@@ -12,7 +12,7 @@
   "ethTestnet": false,
   "ethChainId": 1,
   "ethProvider": "http://localhost:8545",
-  "backend": "http://localhost:3000/api",
+  "backend": "http://admin.tradeeth.io/api",
   "ethGasPrice": 4000000000,
   "ethAddr": "0x0000000000000000000000000000000000000000",
   "ethAddrPrivateKey": "",
