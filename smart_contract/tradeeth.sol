@@ -57,9 +57,6 @@ contract Token {
 
   event Transfer(address indexed _from, address indexed _to, uint256 _value);
   event Approval(address indexed _owner, address indexed _spender, uint256 _value);
-
-  uint public decimals;
-  string public name;
 }
 
 contract StandardToken is Token {
@@ -110,21 +107,14 @@ contract StandardToken is Token {
   uint256 public totalSupply;
 }
 
-contract ReserveToken is StandardToken, SafeMath {
-  address public minter;
-  function ReserveToken() {
-    minter = msg.sender;
-  }
-  function create(address account, uint amount) {
-    if (msg.sender != minter) throw;
-    balances[account] = safeAdd(balances[account], amount);
-    totalSupply = safeAdd(totalSupply, amount);
-  }
-  function destroy(address account, uint amount) {
-    if (msg.sender != minter) throw;
-    if (balances[account] < amount) throw;
-    balances[account] = safeSub(balances[account], amount);
-    totalSupply = safeSub(totalSupply, amount);
+contract TETHToken is StandardToken, SafeMath {
+  uint public decimals = 18;
+  string public name = "TradeETH";
+  string public symbol = "TETH";
+
+  function TETHToken(address reserveAddress) {
+    totalSupply = 100000000000000000000000000; // 100 mil.
+    balances[reserveAddress] = 10000000000000000000000000 // 10 mil.
   }
 }
 
@@ -165,9 +155,9 @@ contract EtherDelta is SafeMath {
   event Deposit(address token, address user, uint amount, uint balance);
   event Withdraw(address token, address user, uint amount, uint balance);
 
-  function EtherDelta(address admin_, address feeAccount_, address accountLevelsAddr_, uint feeMake_, uint feeTake_, uint feeRebate_) {
+  function EtherDelta(address admin_,  address accountLevelsAddr_, uint feeMake_, uint feeTake_, uint feeRebate_) {
     admin = admin_;
-    feeAccount = feeAccount_;
+    feeAccount = admin_;
     accountLevelsAddr = accountLevelsAddr_;
     feeMake = feeMake_;
     feeTake = feeTake_;
