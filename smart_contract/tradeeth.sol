@@ -60,6 +60,13 @@ contract Token {
 }
 
 contract StandardToken is Token {
+  address[] internal allTokenHolders;
+
+  mapping(address => uint256) balances;
+
+  mapping (address => mapping (address => uint256)) allowed;
+
+  uint256 public totalSupply;
 
   function transfer(address _to, uint256 _value) returns (bool success) {
     //Default assumes totalSupply can't be over max (2^256 - 1).
@@ -68,6 +75,8 @@ contract StandardToken is Token {
     if (balances[msg.sender] >= _value && balances[_to] + _value > balances[_to]) {
     //if (balances[msg.sender] >= _value && _value > 0) {
       balances[msg.sender] -= _value;
+      syncTokenHolding(msg.sender, _to);
+
       balances[_to] += _value;
       Transfer(msg.sender, _to, _value);
       return true;
@@ -78,9 +87,19 @@ contract StandardToken is Token {
     //same as above. Replace this line with the following if you want to protect against wrapping uints.
     if (balances[_from] >= _value && allowed[_from][msg.sender] >= _value && balances[_to] + _value > balances[_to]) {
     //if (balances[_from] >= _value && allowed[_from][msg.sender] >= _value && _value > 0) {
+      if(balances[_to] == 0) {
+        allTokenHolders.push(_to);
+      }
+
       balances[_to] += _value;
       balances[_from] -= _value;
+      if (balances[_from] == 0) {
+        removeTokenHolder(_from);
+      }
+
       allowed[_from][msg.sender] -= _value;
+
+
       Transfer(_from, _to, _value);
       return true;
     } else { return false; }
@@ -100,21 +119,69 @@ contract StandardToken is Token {
     return allowed[_owner][_spender];
   }
 
-  mapping(address => uint256) balances;
+  function syncTokenHolding(address from, address to) internal {
+    if (balances[from] == 0) {
+      removeTokenHolder(from);
+    } else if (balances[to] == 0) {
+      allTokenHolders.push(to);
+    }
+  }
 
-  mapping (address => mapping (address => uint256)) allowed;
-
-  uint256 public totalSupply;
+  function removeTokenHolder(address _addr) internal {
+    for (uint i = 0; i < allTokenHolders.length; i++) {
+      if (allTokenHolders[i] == _addr) {
+        delete allTokenHolders[i];
+        return;
+      }
+    }
+  }
 }
 
-contract TETHToken is StandardToken, SafeMath {
+contract ReserveToken is StandardToken, SafeMath {
+  address public minter;
+  function ReserveToken() {
+    minter = msg.sender;
+  }
+
+  function create(address account, uint amount) {
+    if (msg.sender != minter) throw;
+    balances[account] = safeAdd(balances[account], amount);
+    totalSupply = safeAdd(totalSupply, amount);
+  }
+
+  function destroy(address account, uint amount) {
+    if (msg.sender != minter) throw;
+    if (balances[account] < amount) throw;
+    balances[account] = safeSub(balances[account], amount);
+    totalSupply = safeSub(totalSupply, amount);
+  }
+}
+
+contract TETHToken is ReserveToken {
   uint public decimals = 18;
   string public name = "TradeETH";
   string public symbol = "TETH";
 
   function TETHToken(address reserveAddress) {
     totalSupply = 100000000000000000000000000; // 100 mil.
-    balances[reserveAddress] = 10000000000000000000000000 // 10 mil.
+    balances[reserveAddress] = 10000000000000000000000000; // 10 mil.
+  }
+
+  /*
+  * First transfer fee earnings to token contract
+  */
+  function sendDividends() external payable {
+    uint256 paymentPerShare = msg.value / totalSupply;
+    if (paymentPerShare == 0) throw;
+
+    /* Get all accounts and send them dividend payment */
+    for (uint256 i = 0; i < allTokenHolders.length; i++) {
+      uint256 dividend = safeMul(paymentPerShare, balances[allTokenHolders[i]]);
+      if (!allTokenHolders[i].send(dividend)) {
+        // todo: write down sent rewards
+        throw;
+      }
+    }
   }
 }
 
@@ -138,9 +205,9 @@ contract AccountLevelsTest is AccountLevels {
   }
 }
 
-contract EtherDelta is SafeMath {
+contract TradeETH is SafeMath {
   address public admin; //the admin address
-  address public feeAccount; //the account that will receive fees
+  uint public feeEarnings; // amount earned from fees
   address public accountLevelsAddr; //the address of the AccountLevels contract
   uint public feeMake; //percentage times (1 ether)
   uint public feeTake; //percentage times (1 ether)
@@ -155,9 +222,8 @@ contract EtherDelta is SafeMath {
   event Deposit(address token, address user, uint amount, uint balance);
   event Withdraw(address token, address user, uint amount, uint balance);
 
-  function EtherDelta(address admin_,  address accountLevelsAddr_, uint feeMake_, uint feeTake_, uint feeRebate_) {
+  function TradeETH(address admin_,  address accountLevelsAddr_, uint feeMake_, uint feeTake_, uint feeRebate_) {
     admin = admin_;
-    feeAccount = admin_;
     accountLevelsAddr = accountLevelsAddr_;
     feeMake = feeMake_;
     feeTake = feeTake_;
@@ -176,11 +242,6 @@ contract EtherDelta is SafeMath {
   function changeAccountLevelsAddr(address accountLevelsAddr_) {
     if (msg.sender != admin) throw;
     accountLevelsAddr = accountLevelsAddr_;
-  }
-
-  function changeFeeAccount(address feeAccount_) {
-    if (msg.sender != admin) throw;
-    feeAccount = feeAccount_;
   }
 
   function changeFeeMake(uint feeMake_) {
@@ -263,7 +324,8 @@ contract EtherDelta is SafeMath {
     }
     tokens[tokenGet][msg.sender] = safeSub(tokens[tokenGet][msg.sender], safeAdd(amount, feeTakeXfer));
     tokens[tokenGet][user] = safeAdd(tokens[tokenGet][user], safeSub(safeAdd(amount, feeRebateXfer), feeMakeXfer));
-    tokens[tokenGet][feeAccount] = safeAdd(tokens[tokenGet][feeAccount], safeSub(safeAdd(feeMakeXfer, feeTakeXfer), feeRebateXfer));
+
+    feeEarnings = safeAdd(feeEarnings, safeSub(safeAdd(feeMakeXfer, feeTakeXfer), feeRebateXfer));
     tokens[tokenGive][user] = safeSub(tokens[tokenGive][user], safeMul(amountGive, amount) / amountGet);
     tokens[tokenGive][msg.sender] = safeAdd(tokens[tokenGive][msg.sender], safeMul(amountGive, amount) / amountGet);
   }
