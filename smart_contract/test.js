@@ -206,7 +206,7 @@ describe('Test', function test() {
                         utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'balanceOf', [contractToken2Addr, account2], (err9, initialBalance22) => {
                           utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'order', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, { gas: 1000000, value: 0 }], account1, undefined, 0, (err10) => {
                             assert.equal(err10, undefined);
-                            utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'trade', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, account1, 0, '0x0', '0x0', amount, { gas: 1000000, value: 0 }], account2, undefined, 0, (err11) => {
+                            utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'trade', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, account1, 0, '0x0', '0x0', amount, { gas: 1000000, value: feeTake }], account2, undefined, 0, (err11) => {
                               assert.equal(err11, undefined);
                               utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'balanceOf', [contractToken1Addr, feeAccount], (err12, feeBalance1) => {
                                 utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'balanceOf', [contractToken2Addr, feeAccount], (err13, feeBalance2) => {
@@ -318,7 +318,7 @@ describe('Test', function test() {
                       utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'balanceOf', [contractToken2Addr, account1], (err8, initialBalance21) => {
                         utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'balanceOf', [contractToken2Addr, account2], (err9, initialBalance22) => {
                           utility.sign(web3, account1, hash, undefined, (err10, sig) => {
-                            utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'trade', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, account1, sig.v, sig.r, sig.s, amount, { gas: 1000000, value: 0 }], account2, undefined, 0, (err11) => {
+                            utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'trade', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, account1, sig.v, sig.r, sig.s, amount, { gas: 1000000, value: feeTake }], account2, undefined, 0, (err11) => {
                               assert.equal(err11, undefined);
                               utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'balanceOf', [contractToken1Addr, feeAccount], (err12, feeBalance1) => {
                                 utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'balanceOf', [contractToken2Addr, feeAccount], (err13, feeBalance2) => {
@@ -544,7 +544,7 @@ describe('Test', function test() {
         const hash = sha256(new Buffer(condensed, 'hex'));
         const amount = amountGet.div(new BigNumber(2));
         utility.sign(web3, user, hash, undefined, (err2, sig) => {
-          utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'trade', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, user, sig.v, sig.r, sig.s, amount, { gas: 1000000, value: 0 }], accounts[2], undefined, 0, (err3) => {
+          utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'trade', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, user, sig.v, sig.r, sig.s, amount, { gas: 1000000, value: feeTake }], accounts[2], undefined, 0, (err3) => {
             assert.equal(err3, undefined);
             utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'availableVolume', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, user, sig.v, sig.r, sig.s], (err4, result4) => {
               assert.equal(result4.equals(amountGet.minus(amount)), true);
@@ -568,11 +568,16 @@ describe('Test', function test() {
         const hash = sha256(new Buffer(condensed, 'hex'));
         const amount = amountGet.div(new BigNumber(2));
         utility.sign(web3, user, hash, undefined, (err2, sig) => {
-          utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'trade', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, user, sig.v, sig.r, sig.s, amount, { gas: 1000000, value: 0 }], accounts[1], undefined, 0, (err3) => {
-            assert.equal(err3, undefined);
-            utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'availableVolume', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, user, sig.v, sig.r, sig.s], (err4, result4) => {
-              assert.equal(result4.equals(amountGet.minus(amount)), true);
-              done();
+          utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'calculateTakeFee', [accounts[1]], (errorCallFee, shouldBeFee) => {
+            utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'trade', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, user, sig.v, sig.r, sig.s, amount, {
+              gas: 1000000,
+              value: shouldBeFee
+            }], accounts[1], undefined, 0, (err3) => {
+              assert.equal(err3, undefined);
+              utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'availableVolume', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, user, sig.v, sig.r, sig.s], (err4, result4) => {
+                assert.equal(result4.equals(amountGet.minus(amount)), true);
+                done();
+              });
             });
           });
         });
@@ -590,7 +595,7 @@ describe('Test', function test() {
               assert.equal(err3, undefined);
               utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'order', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, { gas: 1000000, value: 0 }], account1, undefined, 0, (err4) => {
                 assert.equal(err4, undefined);
-                utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'trade', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, account1, 0, '0x0', '0x0', amount, { gas: 1000000, value: 0 }], account2, undefined, 0, (err5) => {
+                utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'trade', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, account1, 0, '0x0', '0x0', amount, { gas: 1000000, value: feeTake }], account2, undefined, 0, (err5) => {
                   assert.equal(!err5, false);
                   callback();
                 });

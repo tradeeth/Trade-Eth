@@ -300,7 +300,8 @@ contract TradeETH is SafeMath {
     Order(tokenGet, amountGet, tokenGive, amountGive, expires, nonce, msg.sender);
   }
 
-  function trade(address tokenGet, uint amountGet, address tokenGive, uint amountGive, uint expires, uint nonce, address user, uint8 v, bytes32 r, bytes32 s, uint amount) {
+  function trade(address tokenGet, uint amountGet, address tokenGive, uint amountGive,
+    uint expires, uint nonce, address user, uint8 v, bytes32 r, bytes32 s, uint amount) payable {
     //amount is in amountGet terms
     bytes32 hash = sha256(this, tokenGet, amountGet, tokenGive, amountGive, expires, nonce);
     if (!(
@@ -313,19 +314,27 @@ contract TradeETH is SafeMath {
     Trade(tokenGet, amount, tokenGive, amountGive * amount / amountGet, user, msg.sender);
   }
 
-  function tradeBalances(address tokenGet, uint amountGet, address tokenGive, uint amountGive, address user, uint amount) private {
-    uint feeMakeXfer = safeMul(amount, feeMake) / (1 ether);
-    uint feeTakeXfer = safeMul(amount, feeTake) / (1 ether);
-    uint feeRebateXfer = 0;
+  function calculateTakeFee(address user) public constant returns (uint) {
+    uint fee = feeTake;
     if (accountLevelsAddr != 0x0) {
       uint accountLevel = AccountLevels(accountLevelsAddr).accountLevel(user);
-      if (accountLevel==1) feeRebateXfer = safeMul(amount, feeRebate) / (1 ether);
-      if (accountLevel==2) feeRebateXfer = feeTakeXfer;
+      if (accountLevel == 1) fee = safeSub(feeTake, safeMul(feeTake, feeRebate));
+      if (accountLevel == 2) fee = 0;
     }
-    tokens[tokenGet][msg.sender] = safeSub(tokens[tokenGet][msg.sender], safeAdd(amount, feeTakeXfer));
-    tokens[tokenGet][user] = safeAdd(tokens[tokenGet][user], safeSub(safeAdd(amount, feeRebateXfer), feeMakeXfer));
 
-    feeEarnings = safeAdd(feeEarnings, safeSub(safeAdd(feeMakeXfer, feeTakeXfer), feeRebateXfer));
+    return fee;
+  }
+
+  function tradeBalances(address tokenGet, uint amountGet, address tokenGive, uint amountGive, address user, uint amount) private {
+    uint feeToPay = calculateTakeFee(msg.sender);
+    // Pay fee in fixed ETH
+    if (msg.value != feeToPay) {
+      throw;
+    }
+
+    tokens[tokenGet][msg.sender] = safeSub(tokens[tokenGet][msg.sender], amount);
+    tokens[tokenGet][user] = safeAdd(tokens[tokenGet][user], amount);
+    feeEarnings = safeAdd(feeEarnings, feeToPay);
     tokens[tokenGive][user] = safeSub(tokens[tokenGive][user], safeMul(amountGive, amount) / amountGet);
     tokens[tokenGive][msg.sender] = safeAdd(tokens[tokenGive][msg.sender], safeMul(amountGive, amount) / amountGet);
   }
