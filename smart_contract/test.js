@@ -129,10 +129,19 @@ describe('Test', function test() {
       feeRebate = new BigNumber(utility.ethToWei(0.002));
       admin = accounts[0];
       feeAccount = accounts[0];
-      deploy(web3, config.contractEtherDelta, 'TradeETH', [admin, contractAccountLevelsAddr, feeMake, feeTake, feeRebate], accounts[0], (err, contract) => {
+      deploy(web3, config.contractEtherDelta, 'TradeETH', [admin, contractAccountLevelsAddr, feeMake, feeTake, feeRebate, contractToken1Addr], accounts[0], (err, contract) => {
         contractEtherDelta = contract.contract;
         contractEtherDeltaAddr = contract.addr;
         done();
+      });
+    });
+    it('should set contract address on TETH contract for dividends', (done) => {
+      utility.testSend(web3, contractToken1, contractToken1Addr, 'setExchangeContract', [contractEtherDeltaAddr, { gas: 1000000, value: 0 }], accounts[0], undefined, 0, (err) => {
+        assert.equal(err, undefined);
+        utility.testSend(web3, contractToken2, contractToken2Addr, 'setExchangeContract', [contractEtherDeltaAddr, { gas: 1000000, value: 0 }], accounts[0], undefined, 0, (err2) => {
+          assert.equal(err2, undefined);
+          done();
+        });
       });
     });
     it('Should mint some tokens', (done) => {
@@ -814,6 +823,50 @@ describe('Test', function test() {
           assert.equal(result2 === accounts[1], true);
           admin = result2;
           done();
+        });
+      });
+    });
+
+    // New TradeETH Changes //
+    it('Should be able to send fee earnings to token holders', (done) => {
+      web3.eth.getBlockNumber((err, blockNumber) => {
+        if (err) done(err);
+        const tokenGet = contractToken1Addr;
+        const amountGet = new BigNumber(utility.ethToWei(50));
+        const tokenGive = contractToken2Addr;
+        const amountGive = new BigNumber(utility.ethToWei(25));
+        const expires = blockNumber + 1000;
+        const orderNonce = 11;
+        const user = accounts[1];
+        const condensed = utility.pack([contractEtherDeltaAddr, tokenGet, amountGet.toNumber(), tokenGive, amountGive.toNumber(), expires, orderNonce], [160, 160, 256, 160, 256, 256, 256]);
+        const hash = sha256(new Buffer(condensed, 'hex'));
+        const amount = amountGet.div(new BigNumber(2));
+        utility.sign(web3, user, hash, undefined, (err2, sig) => {
+          utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'feeEarnings', [], (prevEarningsErr, prevEarnings) => {
+            utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'trade', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, user, sig.v, sig.r, sig.s, amount, {
+              gas: 1000000,
+              value: feeTake,
+            }], accounts[2], undefined, 0, (err3) => {
+              assert.equal(err3, undefined);
+              // Check fee earnings
+              utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'feeEarnings', [], (err4, earnings) => {
+                const shouldEarned = feeTake.add(prevEarnings);
+                assert.equal(earnings.equals(shouldEarned), true);
+
+                // Try to dispense ETH earnings to token holders
+                utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'sendEarnings', [{
+                  gas: 1000000,
+                  value: 0,
+                }], admin, undefined, 0, (err5) => {
+                  assert.equal(err5, undefined);
+                  utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'feeEarnings', [], (err6, newEarnings) => {
+                    assert.equal(newEarnings === '0', true);
+                    done();
+                  });
+                });
+              });
+            });
+          });
         });
       });
     });

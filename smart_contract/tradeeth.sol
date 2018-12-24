@@ -138,19 +138,19 @@ contract StandardToken is Token {
 }
 
 contract ReserveToken is StandardToken, SafeMath {
-  address public minter;
+  address public owner;
   function ReserveToken() {
-    minter = msg.sender;
+    owner = msg.sender;
   }
 
   function create(address account, uint amount) {
-    if (msg.sender != minter) throw;
+    if (msg.sender != owner) throw;
     balances[account] = safeAdd(balances[account], amount);
     totalSupply = safeAdd(totalSupply, amount);
   }
 
   function destroy(address account, uint amount) {
-    if (msg.sender != minter) throw;
+    if (msg.sender != owner) throw;
     if (balances[account] < amount) throw;
     balances[account] = safeSub(balances[account], amount);
     totalSupply = safeSub(totalSupply, amount);
@@ -161,27 +161,64 @@ contract TETHToken is ReserveToken {
   uint public decimals = 18;
   string public name = "TradeETH";
   string public symbol = "TETH";
+  address public exchangeContract;
 
-  function TETHToken(address reserveAddress) {
+  event SentDividend(address receiver, uint amount);
+
+  function TETHToken(address _reserveAddress) {
     totalSupply = 100000000000000000000000000; // 100 mil.
-    balances[reserveAddress] = 10000000000000000000000000; // 10 mil.
+    balances[_reserveAddress] = 10000000000000000000000000; // 10 mil.
+  }
+
+  function setExchangeContract(address _newAddress) external {
+    if (msg.sender != owner) throw;
+    exchangeContract = _newAddress;
   }
 
   /*
-  * First transfer fee earnings to token contract
+  * Used by token owner to sent dividends in batches
+  * Note: Call from exchange contract to
+  * transfer fee earnings to this call
   */
-  function sendDividends() external payable {
+  function sendDividendsInBatches(address[] _tokenHolders) external payable {
+    if (msg.sender != owner) throw;
+
+    uint256 paymentPerShare = msg.value / totalSupply;
+    if (paymentPerShare == 0) throw;
+
+    for (uint256 i = 0; i < _tokenHolders.length; i++) {
+      uint256 dividend = safeMul(paymentPerShare, balances[_tokenHolders[i]]);
+      if (_tokenHolders[i].send(dividend)) {
+        SentDividend(_tokenHolders[i], dividend);
+      } else {
+        throw;
+      }
+    }
+  }
+
+  /*
+  * Sends dividends to all token holders.
+  * Note: Call from exchange contract to
+  * transfer fee earnings to this call.
+  * In case of too many holders, it could hit block gas limit.
+  */
+  function sendDividends() public payable returns (bool){
+    if (msg.sender != exchangeContract) throw;
+
     uint256 paymentPerShare = msg.value / totalSupply;
     if (paymentPerShare == 0) throw;
 
     /* Get all accounts and send them dividend payment */
     for (uint256 i = 0; i < allTokenHolders.length; i++) {
       uint256 dividend = safeMul(paymentPerShare, balances[allTokenHolders[i]]);
-      if (!allTokenHolders[i].send(dividend)) {
-        // todo: write down sent rewards
-        throw;
+      if (allTokenHolders[i].send(dividend)) {
+        SentDividend(allTokenHolders[i], dividend);
+      } else {
+        return false;
       }
     }
+
+    return true;
   }
 }
 
@@ -209,6 +246,7 @@ contract TradeETH is SafeMath {
   address public admin; //the admin address
   uint public feeEarnings; // amount earned from fees
   address public accountLevelsAddr; //the address of the AccountLevels contract
+  address public tokenAddress; // TETH token address
   uint public feeMake; //percentage times (1 ether)
   uint public feeTake; //percentage times (1 ether)
   uint public feeRebate; //percentage times (1 ether)
@@ -222,12 +260,13 @@ contract TradeETH is SafeMath {
   event Deposit(address token, address user, uint amount, uint balance);
   event Withdraw(address token, address user, uint amount, uint balance);
 
-  function TradeETH(address admin_,  address accountLevelsAddr_, uint feeMake_, uint feeTake_, uint feeRebate_) {
+  function TradeETH(address admin_,  address accountLevelsAddr_, uint feeMake_, uint feeTake_, uint feeRebate_, address _tokenAddress) {
     admin = admin_;
     accountLevelsAddr = accountLevelsAddr_;
     feeMake = feeMake_;
     feeTake = feeTake_;
     feeRebate = feeRebate_;
+    tokenAddress = _tokenAddress;
   }
 
   function() {
@@ -260,6 +299,13 @@ contract TradeETH is SafeMath {
     if (msg.sender != admin) throw;
     if (feeRebate_ < feeRebate || feeRebate_ > feeTake) throw;
     feeRebate = feeRebate_;
+  }
+
+  function sendEarnings() {
+    if (msg.sender != admin) throw;
+    if (TETHToken(tokenAddress).sendDividends.value(feeEarnings)()) {
+      feeEarnings = 0;
+    }
   }
 
   function deposit() payable {
