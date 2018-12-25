@@ -843,25 +843,43 @@ describe('Test', function test() {
         const amount = amountGet.div(new BigNumber(2));
         utility.sign(web3, user, hash, undefined, (err2, sig) => {
           utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'feeEarnings', [], (prevEarningsErr, prevEarnings) => {
-            utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'trade', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, user, sig.v, sig.r, sig.s, amount, {
-              gas: 1000000,
-              value: 0 /*feeTake*/,
-            }], accounts[2], undefined, 0, (err3) => {
-              assert.equal(err3, undefined);
-              // Check fee earnings
-              utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'feeEarnings', [], (err4, earnings) => {
-                const shouldEarned = feeTake.add(prevEarnings);
-                assert.equal(earnings.equals(shouldEarned), true);
+            utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'calculateTakeFee', [accounts[2]], (feeTakeErr, calculatedTakeFee) => {
+              assert.equal(calculatedTakeFee.toString() !== '0', true);
+              utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'trade', [tokenGet, amountGet, tokenGive, amountGive, expires, orderNonce, user, sig.v, sig.r, sig.s, amount, {
+                gas: 1000000,
+                value: 0 /*feeTake*/,
+              }], accounts[2], undefined, 0, (err3) => {
+                assert.equal(err3, undefined);
+                // Check fee earnings
+                utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'feeEarnings', [], (err4, earnings) => {
+                  const shouldEarned = feeTake.add(prevEarnings);
+                  assert.equal(earnings.equals(shouldEarned), true);
+                  // Check user token balance before disbursement
+                  utility.testCall(web3, contractToken1, contractToken1Addr, 'balanceOf', [accounts[2]], (err41, balanceBefore) => {
 
-                //  Disburse dividends of earnings to token holders
-                utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'sendTokenFeeEarnings', [{
-                  gas: 1000000,
-                  value: 0,
-                }], admin, undefined, 0, (err5) => {
-                  assert.equal(err5, undefined);
-                  utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'feeEarnings', [], (err6, newEarnings) => {
-                    assert.equal(newEarnings.toString() === '0', true);
-                    done();
+                    //  Disburse dividends of earnings to token holders
+                    utility.testSend(web3, contractEtherDelta, contractEtherDeltaAddr, 'sendTokenFeeEarnings', [{
+                      gas: 1000000,
+                      value: 0,
+                    }], admin, undefined, 0, (err5) => {
+                      assert.equal(err5, undefined);
+                      utility.testCall(web3, contractEtherDelta, contractEtherDeltaAddr, 'feeEarnings', [], (err6, newEarnings) => {
+                        assert.equal(newEarnings.toString() === '0', true);
+
+                        utility.testSend(web3, contractToken1, contractToken1Addr, 'updateDividend', [accounts[2], {
+                          gas: 1000000,
+                          value: 0,
+                        }], accounts[2], undefined, 0, (errorUpdating) => {
+                          assert.equal(errorUpdating, undefined);
+                          // Check that user has more tokens after disbursement
+                          utility.testCall(web3, contractToken1, contractToken1Addr, 'balanceOf', [accounts[2]], (err7, balanceAfter) => {
+                            assert.equal(balanceAfter.toNumber() > balanceBefore.toNumber(), true);
+                            assert.equal(balanceAfter.sub(balanceBefore).toString() !== '0', true);
+                            done();
+                          });
+                        });
+                      });
+                    });
                   });
                 });
               });

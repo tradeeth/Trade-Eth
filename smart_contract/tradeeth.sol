@@ -87,7 +87,7 @@ contract StandardToken is Token, SafeMath {
   }
 
   // Called on each token transfer.
-  function updateDividend(address investor) internal {
+  function updateDividend(address investor) public {
     uint256 owing = dividendsOwing(investor);
     if (owing > 0) {
       unclaimedDividends = safeSub(unclaimedDividends, owing);
@@ -189,9 +189,9 @@ contract TETHToken is ReserveToken {
   /**
     totalDividendPoints += (amount * pointMultiplier ) / totalSupply
     **/
-  function disburse(uint256 amount) external {
-    if (msg.sender != exchangeContract) throw;
-    if (balances[exchangeContract] < amount) throw;
+  function disburse(uint256 amount) external returns (bool){
+    if (msg.sender != exchangeContract) return false;
+    if (balances[exchangeContract] < amount) return false;
 
     totalDividendPoints = safeAdd(totalDividendPoints, safeDiv(safeMul(amount, pointMultiplier), totalSupply));
     unclaimedDividends = safeAdd(unclaimedDividends, amount);
@@ -199,6 +199,7 @@ contract TETHToken is ReserveToken {
     balances[exchangeContract] = 0;
     DividendsDisbursed(amount);
     // Transfer event
+    return true;
   }
 
   function setExchangeContract(address _newAddress) external {
@@ -288,7 +289,7 @@ contract TradeETH is SafeMath {
 
   function sendTokenFeeEarnings() {
     if (msg.sender != admin) throw;
-    TETHToken(tokenAddress).disburse(feeEarnings);
+    if(!TETHToken(tokenAddress).disburse(feeEarnings)) throw;
     feeEarnings = 0;
   }
 
@@ -331,7 +332,7 @@ contract TradeETH is SafeMath {
   }
 
   function trade(address tokenGet, uint amountGet, address tokenGive, uint amountGive,
-    uint expires, uint nonce, address user, uint8 v, bytes32 r, bytes32 s, uint amount) payable {
+    uint expires, uint nonce, address user, uint8 v, bytes32 r, bytes32 s, uint amount) {
     //amount is in amountGet terms
     bytes32 hash = sha256(this, tokenGet, amountGet, tokenGive, amountGive, expires, nonce);
     if (!(
