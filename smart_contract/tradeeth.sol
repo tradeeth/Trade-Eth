@@ -7,6 +7,12 @@ contract SafeMath {
     return c;
   }
 
+  function safeDiv(uint256 a, uint256 b) internal returns (uint256) {
+    uint256 c = a / b;
+    // assert(a == b * c + a % b); // There is no case in which this doesn't hold
+    return c;
+  }
+
   function safeSub(uint a, uint b) internal returns (uint) {
     assert(b <= a);
     return a - b;
@@ -59,14 +65,36 @@ contract Token {
   event Approval(address indexed _owner, address indexed _spender, uint256 _value);
 }
 
-contract StandardToken is Token {
-  address[] internal allTokenHolders;
-
+contract StandardToken is Token, SafeMath {
   mapping(address => uint256) balances;
 
   mapping (address => mapping (address => uint256)) allowed;
 
   uint256 public totalSupply;
+
+  uint256 totalDividendPoints = 0;
+  uint256 unclaimedDividends = 0;
+  uint256 pointMultiplier = 1000000000000000000;
+  mapping(address => uint256) lastDividendPoints;
+
+  /**
+     new dividend = totalDividendPoints - investor's lastDividnedPoint
+     investor's dividend = ( balance * new dividend ) / points multiplier
+    **/
+  function dividendsOwing(address investor) internal returns(uint256) {
+    uint256 newDividendPoints = safeSub(totalDividendPoints, lastDividendPoints[investor]);
+    return safeDiv(safeMul(balances[investor], newDividendPoints), pointMultiplier);
+  }
+
+  // Called on each token transfer.
+  function updateDividend(address investor) internal {
+    uint256 owing = dividendsOwing(investor);
+    if (owing > 0) {
+      unclaimedDividends = safeSub(unclaimedDividends, owing);
+      balances[investor] = safeAdd(balances[investor], owing);
+      lastDividendPoints[investor] = totalDividendPoints;
+    }
+  }
 
   function transfer(address _to, uint256 _value) returns (bool success) {
     //Default assumes totalSupply can't be over max (2^256 - 1).
@@ -75,7 +103,8 @@ contract StandardToken is Token {
     if (balances[msg.sender] >= _value && balances[_to] + _value > balances[_to]) {
     //if (balances[msg.sender] >= _value && _value > 0) {
       balances[msg.sender] -= _value;
-      syncTokenHolding(msg.sender, _to);
+      updateDividend(msg.sender);
+      updateDividend(_to);
 
       balances[_to] += _value;
       Transfer(msg.sender, _to, _value);
@@ -87,15 +116,11 @@ contract StandardToken is Token {
     //same as above. Replace this line with the following if you want to protect against wrapping uints.
     if (balances[_from] >= _value && allowed[_from][msg.sender] >= _value && balances[_to] + _value > balances[_to]) {
     //if (balances[_from] >= _value && allowed[_from][msg.sender] >= _value && _value > 0) {
-      if(balances[_to] == 0) {
-        allTokenHolders.push(_to);
-      }
-
       balances[_to] += _value;
       balances[_from] -= _value;
-      if (balances[_from] == 0) {
-        removeTokenHolder(_from);
-      }
+
+      updateDividend(_from);
+      updateDividend(_to);
 
       allowed[_from][msg.sender] -= _value;
 
@@ -118,26 +143,9 @@ contract StandardToken is Token {
   function allowance(address _owner, address _spender) constant returns (uint256 remaining) {
     return allowed[_owner][_spender];
   }
-
-  function syncTokenHolding(address from, address to) internal {
-    if (balances[from] == 0) {
-      removeTokenHolder(from);
-    } else if (balances[to] == 0) {
-      allTokenHolders.push(to);
-    }
-  }
-
-  function removeTokenHolder(address _addr) internal {
-    for (uint i = 0; i < allTokenHolders.length; i++) {
-      if (allTokenHolders[i] == _addr) {
-        delete allTokenHolders[i];
-        return;
-      }
-    }
-  }
 }
 
-contract ReserveToken is StandardToken, SafeMath {
+contract ReserveToken is StandardToken {
   address public owner;
   function ReserveToken() {
     owner = msg.sender;
@@ -163,62 +171,31 @@ contract TETHToken is ReserveToken {
   string public symbol = "TETH";
   address public exchangeContract;
 
-  event SentDividend(address receiver, uint amount);
+  event DividendsDisbursed(uint amount);
 
   function TETHToken(address _reserveAddress) {
     totalSupply = 100000000000000000000000000; // 100 mil.
     balances[_reserveAddress] = 10000000000000000000000000; // 10 mil.
   }
 
+  /**
+    totalDividendPoints += (amount * pointMultiplier ) / totalSupply
+    **/
+  function disburse(uint256 amount) external {
+    if (msg.sender != exchangeContract) throw;
+    if (balances[exchangeContract] < amount) throw;
+
+    totalDividendPoints = safeAdd(totalDividendPoints, safeDiv(safeMul(amount, pointMultiplier), totalSupply));
+    unclaimedDividends = safeAdd(unclaimedDividends, amount);
+
+    balances[exchangeContract] = 0;
+    DividendsDisbursed(amount);
+    // Transfer event
+  }
+
   function setExchangeContract(address _newAddress) external {
     if (msg.sender != owner) throw;
     exchangeContract = _newAddress;
-  }
-
-  /*
-  * Used by token owner to sent dividends in batches
-  * Note: Call from exchange contract to
-  * transfer fee earnings to this call
-  */
-  function sendDividendsInBatches(address[] _tokenHolders) external payable {
-    if (msg.sender != owner) throw;
-
-    uint256 paymentPerShare = msg.value / totalSupply;
-    if (paymentPerShare == 0) throw;
-
-    for (uint256 i = 0; i < _tokenHolders.length; i++) {
-      uint256 dividend = safeMul(paymentPerShare, balances[_tokenHolders[i]]);
-      if (_tokenHolders[i].send(dividend)) {
-        SentDividend(_tokenHolders[i], dividend);
-      } else {
-        throw;
-      }
-    }
-  }
-
-  /*
-  * Sends dividends to all token holders.
-  * Note: Call from exchange contract to
-  * transfer fee earnings to this call.
-  * In case of too many holders, it could hit block gas limit.
-  */
-  function sendDividends() public payable returns (bool){
-    if (msg.sender != exchangeContract) throw;
-
-    uint256 paymentPerShare = msg.value / totalSupply;
-    if (paymentPerShare == 0) throw;
-
-    /* Get all accounts and send them dividend payment */
-    for (uint256 i = 0; i < allTokenHolders.length; i++) {
-      uint256 dividend = safeMul(paymentPerShare, balances[allTokenHolders[i]]);
-      if (allTokenHolders[i].send(dividend)) {
-        SentDividend(allTokenHolders[i], dividend);
-      } else {
-        return false;
-      }
-    }
-
-    return true;
   }
 }
 
@@ -301,11 +278,10 @@ contract TradeETH is SafeMath {
     feeRebate = feeRebate_;
   }
 
-  function sendEarnings() {
+  function sendTokenFeeEarnings() {
     if (msg.sender != admin) throw;
-    if (TETHToken(tokenAddress).sendDividends.value(feeEarnings)()) {
-      feeEarnings = 0;
-    }
+    TETHToken(tokenAddress).disburse(feeEarnings);
+    feeEarnings = 0;
   }
 
   function deposit() payable {
