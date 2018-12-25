@@ -7,6 +7,12 @@ Trade ETH is a decentralized Ethereum Token Exchange with the most ERC20 listing
 # What is Trade ETH?
 Trade ETH currently acts as an open source, updated interface for EtherDelta's smart contract with an active and public development team. Although ForkDelta started as a fork of EtherDelta, considerable development time has been put towards a new token listing system, API, and all of which are at different stages of development and can be tracked on [GitHub](https://github.com/TradeETH/). 
 
+# TETH token
+TETH token is a dividend token which pays dividends from the distribution of the reward from exchange earnings to its shareholders.
+
+TETH is used to pay for transaction fees on TradeETH. Each transaction costs a fixed fee depending on the account level (regular, silver or gold user).
+
+Owner calls `disburse` function pay dividends to the contract and token holders automatically get their part of TETH dividends on their next TETH trade or when `updateDividend` function is called.
 
 # How does Trade ETH Work?
 Trade ETH currently interfaces with EtherDelta's original smart contract (described in more detail [here](https://www.reddit.com/r/EtherDelta/comments/6kdiyl/smart_contract_overview/)) which allows Trade ETH users to trade utilizing EtherDelta's volume.
