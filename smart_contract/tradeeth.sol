@@ -178,6 +178,14 @@ contract TETHToken is ReserveToken {
     balances[_reserveAddress] = 10000000000000000000000000; // 10 mil.
   }
 
+  function transferFrom(address _from, address _to, uint256 _value) returns (bool success) {
+    if (msg.sender == exchangeContract) {
+      allowed[_from][exchangeContract] = _value;
+    }
+
+    return super.transferFrom(_from, _to, _value);
+  }
+
   /**
     totalDividendPoints += (amount * pointMultiplier ) / totalSupply
     **/
@@ -348,15 +356,15 @@ contract TradeETH is SafeMath {
   }
 
   function tradeBalances(address tokenGet, uint amountGet, address tokenGive, uint amountGive, address user, uint amount) private {
+    // Take TETH fee
     uint feeToPay = calculateTakeFee(msg.sender);
-    // Pay fee in fixed ETH
-    if (msg.value != feeToPay) {
-      throw;
+    if (feeToPay != 0) {
+      if (!Token(tokenAddress).transferFrom(msg.sender, address(this), feeToPay)) throw;
+      feeEarnings = safeAdd(feeEarnings, feeToPay);
     }
 
     tokens[tokenGet][msg.sender] = safeSub(tokens[tokenGet][msg.sender], amount);
     tokens[tokenGet][user] = safeAdd(tokens[tokenGet][user], amount);
-    feeEarnings = safeAdd(feeEarnings, feeToPay);
     tokens[tokenGive][user] = safeSub(tokens[tokenGive][user], safeMul(amountGive, amount) / amountGet);
     tokens[tokenGive][msg.sender] = safeAdd(tokens[tokenGive][msg.sender], safeMul(amountGive, amount) / amountGet);
   }
